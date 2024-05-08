@@ -1,0 +1,10 @@
+#!/bin/sh
+clear
+mkdir -p ./build
+mkdir -p dist
+cmake ./spine-laya  -B ./build/debug  -G "MinGW Makefiles" -DTARGET_BUILD_PLATFORM=emscripten -DCMAKE_TOOLCHAIN_FILE=~/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake --no-warn-unused-cli -DCMAKE_INSTALL_PREFIX=./dist  -DCMAKE_BUILD_TYPE=debug -DCMAKE_CROSSCOMPILING_EMULATOR=/home/ubuntu/emsdk/node/16.20.0_64bit/bin/node
+cd ./build/debug
+emmake make -j4
+cd ../../dist
+cp ../build/debug/spine.js .
+cp ../build/debug/spine.wasm .
