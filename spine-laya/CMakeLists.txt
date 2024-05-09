@@ -47,9 +47,16 @@ set(EMCC_GLUE_ARGS
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${EMCC_WASM_ESM_ARGS}")
 
 add_executable(${EXE_NAME} ${SRC_FILES} ${SPINE_FILES})
-#set_target_properties(${EXE_NAME}  PROPERTIES CXX_STANDARD 17)
-#target_compile_options(${EXE_NAME}  PUBLIC "$<$<BOOL:${MSVC}>:/permissive->")
-#target_link_options(${EXE_NAME}  PUBLIC "--bind -s EXPORT_NAME=Recast -s MODULARIZE=1")
-set_target_properties(${EXE_NAME} PROPERTIES
-	LINK_FLAGS "--bind  -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 -g"
-)
+
+
+if(${CMAKE_BUILD_TYPE} STREQUAL "release")
+message("CMAKE_BUILD_TYPE: Release")
+  set_target_properties(${EXE_NAME} PROPERTIES
+    LINK_FLAGS "--bind  -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 -O0"
+  )
+else()
+message("CMAKE_BUILD_TYPE: Debug")
+  set_target_properties(${EXE_NAME} PROPERTIES
+    LINK_FLAGS "--bind  -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 -O3"
+  )
+endif()

@@ -11,6 +11,10 @@
 #include <spine/spine.h>
 #include <spine/ContainerUtil.h>
 
+void print(const std::string &str) {
+    std::cout << str << std::endl;
+}
+
 using namespace emscripten;
 
 using namespace spine;
@@ -88,19 +92,10 @@ T val_as(const val& v) {
 }
 
 
-struct Renderable {
-    Vector<float> vertices;
-    Vector<unsigned short> indices;
-    size_t numVertices;
-    size_t numIndices;
-};
-
-void print(std::string str){
-    std::cout<<str<<std::endl;
-}
-
+SkeletonClipping clipper = SkeletonClipping();
+Color color = Color(1, 1, 1, 1);
+Vector<float> vbHelpBuffer = Vector<float>();
 void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float slotRangeStart = -1,float slotRangeEnd = -1) {
-    print("start drawSkeleton......................................................");
     Vector<unsigned short> quadIndices = Vector<unsigned short>();
     quadIndices.add(0);
     quadIndices.add(1);
@@ -108,78 +103,74 @@ void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float sl
     quadIndices.add(2);
     quadIndices.add(3);
     quadIndices.add(0);
-    
-    // Vector<unsigned short> ibBuffer = Vector<unsigned short>();
-    // Vector<float> vbBuffer = Vector<float>();
-    float vbBuffer[2048];
-    uint16_t vbBufferIndex = 0;
-    unsigned short ibBuffer[2048];
-    uint16_t ibBufferIndex = 0;
-    Vector<float> vbHelpBuffer = Vector<float>();
-    SkeletonClipping clipper = SkeletonClipping();
-    vbHelpBuffer.setSize(2048,0);
-    Color color = Color(1, 1, 1, 1);
+    Vector<float> vbBuffer = Vector<float>();
+    Vector<unsigned short> ibBuffer = Vector<unsigned short>();
+
     size_t vertexSize = 8;
     if(twoColorTint)  vertexSize = 12;
 
     AtlasPage* lastTexture = nullptr;
     BlendMode blendMode;
-    unsigned short totalVertexCount = 0;
+    size_t totalVertexCount = 0;
 	for (unsigned i = 0; i < skeleton->getSlots().size(); ++i) {
-        print(std::to_string(i));
 		Slot &slot = *skeleton->getDrawOrder()[i];
 		Attachment *attachment = slot.getAttachment();
 		if (!attachment) {
 			clipper.clipEnd(slot);
 			continue;
 		}
+
 		// Early out if the slot color is 0 or the bone is not active
 		if (slot.getColor().a == 0 || !slot.getBone().isActive()) {
 			clipper.clipEnd(slot);
 			continue;
 		}
-        
-		Vector<float> vertices = vbHelpBuffer;
+
+        size_t clippedVertexSize = clipper.isClipping() ? 2 : vertexSize;
+
+		Vector<float>* vertices = &vbHelpBuffer;
 		int verticesCount = 0;
 		Vector<float> *uvs = NULL;
 		Vector<unsigned short> *indices = nullptr;
 		int indicesCount = 0;
 		Color *attachmentColor;
         AtlasPage* texture = nullptr;
-        print( "Attachment");
+
 		if (attachment->getRTTI().isExactly(RegionAttachment::rtti)) {
 			RegionAttachment *regionAttachment = (RegionAttachment *) attachment;
 			attachmentColor = &regionAttachment->getColor();
+
 			// Early out if the slot color is 0
 			if (attachmentColor->a == 0) {
 				clipper.clipEnd(slot);
 				continue;
 			}
-            print( "    RegionAttachment: 8");
-			regionAttachment->computeWorldVertices(slot.getBone(), vertices, 0, 2);
+
+            vertices->setSize(8, 0);
+			regionAttachment->computeWorldVertices(slot.getBone(), *vertices, 0, 2);
 			verticesCount = 4;
 			uvs = &regionAttachment->getUVs();
 			indices = &quadIndices;
 			indicesCount = 6;
 			texture =((AtlasRegion*)regionAttachment->getRendererObject())->page;
-            print( "    End RegionAttachment");
+
 		} else if (attachment->getRTTI().isExactly(MeshAttachment::rtti)) {
 			MeshAttachment *mesh = (MeshAttachment *) attachment;
 			attachmentColor = &mesh->getColor();
+
 			// Early out if the slot color is 0
 			if (attachmentColor->a == 0) {
 				clipper.clipEnd(slot);
 				continue;
 			}
-            print( "    MeshAttachment:" + std::to_string(mesh->getWorldVerticesLength()));
-            // vertices.setSize(mesh->getWorldVerticesLength(), 0);
-			mesh->computeWorldVertices(slot, 0, mesh->getWorldVerticesLength(), vertices, 0, 2);
+
+            vertices->setSize(mesh->getWorldVerticesLength(), 0);
+			mesh->computeWorldVertices(slot, 0, mesh->getWorldVerticesLength(), *vertices, 0, 2);
 			texture =((AtlasRegion*)mesh->getRendererObject())->page;
 			verticesCount = mesh->getWorldVerticesLength() >> 1;
 			uvs = &mesh->getUVs();
 			indices = &mesh->getTriangles();
 			indicesCount = indices->size();
-            print( "    End MeshAttachment:");
 
 		} else if (attachment->getRTTI().isExactly(ClippingAttachment::rtti)) {
 			ClippingAttachment *clip = (ClippingAttachment *) slot.getAttachment();
@@ -187,11 +178,6 @@ void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float sl
 			continue;
 		} else
 			continue;
-
-		color.r = skeleton->getColor().r * slot.getColor().r * attachmentColor->r ;
-		color.g = skeleton->getColor().g * slot.getColor().g * attachmentColor->g ;
-		color.b = skeleton->getColor().b * slot.getColor().b * attachmentColor->b ;
-		color.a = skeleton->getColor().a * slot.getColor().a * attachmentColor->a ;
 
         BlendMode slotBlendMode = slot.getData().getBlendMode();
         bool needNewMat = false;
@@ -202,78 +188,58 @@ void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float sl
         if(lastTexture != texture){
             needNewMat = true;
         }
+
         if(needNewMat){
-            print("  needNewMat");
-            if(vbBufferIndex>0&& ibBufferIndex>0){
-                drawhander(typed_memory_view(vbBufferIndex, vbBuffer),typed_memory_view(vbBufferIndex, ibBuffer),getString(lastTexture->texturePath),blendMode);
-                // vbBuffer.clear();
-                // ibBuffer.clear();
-                vbBufferIndex = 0;
-                ibBufferIndex = 0;
+            if(vbBuffer.size()>0&& ibBuffer.size()>0){
+                drawhander(typed_memory_view(vbBuffer.size(), vbBuffer.buffer()),typed_memory_view(ibBuffer.size(), ibBuffer.buffer()),getString(lastTexture->texturePath),blendMode);
             }
+            vbBuffer.clear();
+            ibBuffer.clear();
             lastTexture = texture;
             blendMode = slotBlendMode;
             totalVertexCount = 0;
         }
-        
 		if (clipper.isClipping()) {
-            print("  isClipping");
-			clipper.clipTriangles(vertices, *indices, *uvs, 2);
-			vertices = clipper.getClippedVertices();
+			clipper.clipTriangles(*vertices, *indices, *uvs, 2);
+			vertices = &clipper.getClippedVertices();
 			verticesCount = clipper.getClippedVertices().size() >> 1;
 			uvs = &clipper.getClippedUVs();
 			indices = &clipper.getClippedTriangles();
 			indicesCount = clipper.getClippedTriangles().size();
-            print("  End isClipping");
-		}
-        size_t clippedVertexSize = clipper.isClipping() ? 2 : vertexSize;
-        // vbBuffer.ensureCapacity(vbBuffer.size() + verticesCount * vertexSize);
-		for (int ii = 0; ii < verticesCount << 1; ii += 2) {
-            vbBuffer[vbBufferIndex++] = vertices[ii];
-            vbBuffer[vbBufferIndex++] = vertices[ii+1];
-            vbBuffer[vbBufferIndex++] = color.r;
-            vbBuffer[vbBufferIndex++] = color.g;
-            vbBuffer[vbBufferIndex++] = color.b;
-            vbBuffer[vbBufferIndex++] = color.a;
-            vbBuffer[vbBufferIndex++] = (*uvs)[ii];
-            vbBuffer[vbBufferIndex++] = (*uvs)[ii+1];
-            if(twoColorTint){
-                vbBuffer[vbBufferIndex++] = 0;
-                vbBuffer[vbBufferIndex++] = 0;
-                vbBuffer[vbBufferIndex++] = 0;
-                vbBuffer[vbBufferIndex++] = 0;
-            }
-            // vbBuffer.add(color.r);
-            // vbBuffer.add(color.g);
-            // vbBuffer.add(color.b);
-            // vbBuffer.add(color.a);
-            // vbBuffer.add((*uvs)[ii]);
-            // vbBuffer.add((*uvs)[ii+1]);
-            // if(twoColorTint){
-            //     vbBuffer.add(0);
-            //     vbBuffer.add(0);
-            //     vbBuffer.add(0);
-            //     vbBuffer.add(0);
-            // }
 		}
 
-		for (int ii = 0; ii < (int) indices->size(); ii++){
-            ibBuffer[ibBufferIndex++] = totalVertexCount+(*indices)[ii];
-            // ibBuffer.add(totalVertexCount+(*indices)[ii]);
-        }
+        color.r = skeleton->getColor().r * slot.getColor().r * attachmentColor->r ;
+		color.g = skeleton->getColor().g * slot.getColor().g * attachmentColor->g ;
+		color.b = skeleton->getColor().b * slot.getColor().b * attachmentColor->b ;
+		color.a = skeleton->getColor().a * slot.getColor().a * attachmentColor->a ;
+
+		for (int ii = 0; ii < verticesCount << 1; ii += 2) {
+            vbBuffer.add((*vertices)[ii]);
+            vbBuffer.add((*vertices)[ii + 1]);
+            vbBuffer.add(color.r);
+            vbBuffer.add(color.g);
+            vbBuffer.add(color.b);
+            vbBuffer.add(color.a);
+            vbBuffer.add((*uvs)[ii]);
+            vbBuffer.add((*uvs)[ii+1]);
+            if(twoColorTint){
+                vbBuffer.add(0);
+                vbBuffer.add(0);
+                vbBuffer.add(0);
+                vbBuffer.add(0);
+            }
+		}
+
+		for (int ii = 0; ii < (int) indices->size(); ii++)
+			ibBuffer.add(totalVertexCount+(*indices)[ii]);
+
 		totalVertexCount +=verticesCount;
 		clipper.clipEnd(slot);
-        vertices.clear();
-
 	}
 	clipper.clipEnd();
 
-    // if(vbBuffer.size()>0&& ibBuffer.size()>0){
-    //     drawhander(typed_memory_view(vbBuffer.size(), vbBuffer.buffer()),typed_memory_view(ibBuffer.size(), ibBuffer.buffer()),getString(lastTexture->texturePath),blendMode);
-    // }
-    if(vbBufferIndex>0&& ibBufferIndex>0){
-        drawhander(typed_memory_view(vbBufferIndex, vbBuffer),typed_memory_view(vbBufferIndex, ibBuffer),getString(lastTexture->texturePath),blendMode);
-               
+    if(vbBuffer.size()>0&& ibBuffer.size()>0){
+        drawhander(typed_memory_view(vbBuffer.size(), vbBuffer.buffer()),typed_memory_view(ibBuffer.size(), ibBuffer.buffer()),getString(lastTexture->texturePath),blendMode);
     }
     
 }
