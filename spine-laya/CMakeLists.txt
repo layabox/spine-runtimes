@@ -11,6 +11,7 @@ set(SPRINE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../spine-cpp/spine-cpp")
 
 project("spine-wasm")
 
+message("${PROGAME_NAME}")
 
 file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/*.h
@@ -28,13 +29,7 @@ include_directories(
   ${SPRINE_DIR}/Include/
 )
 
-SET(EXE_NAME "Spine")
-
-#ADD_LIBRARY(${EXE_NAME} ${SRC_FILES} ${SPINE_FILES})
-
-
-# Build Release by default
-# set(CMAKE_BUILD_TYPE Release CACHE STRING "Build Type")
+SET(EXE_NAME Spine)
 
 
 set(EMCC_GLUE_ARGS
@@ -43,20 +38,22 @@ set(EMCC_GLUE_ARGS
   -I${SPRINE_DIR}/Include/
 )
 
-#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${EMCC_WASM_ESM_ARGS}")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${EMCC_WASM_ESM_ARGS}")
-
 add_executable(${EXE_NAME} ${SRC_FILES} ${SPINE_FILES})
 
+set(FLAG "--bind -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 ")
 
-if(${CMAKE_BUILD_TYPE} STREQUAL "release")
-message("CMAKE_BUILD_TYPE: Release")
-  set_target_properties(${EXE_NAME} PROPERTIES
-    LINK_FLAGS "--bind  -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 -O0"
-  )
-else()
-message("CMAKE_BUILD_TYPE: Debug")
-  set_target_properties(${EXE_NAME} PROPERTIES
-    LINK_FLAGS "--bind  -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 -O3"
-  )
+
+# if(${CMAKE_BUILD_TYPE} STREQUAL "release")
+#   list(APPEND ${FLAG} " -O0")
+# else()
+  string(APPEND FLAG "-O3")
+# endif()
+
+if(${VERSION} STREQUAL "js")
+  string(APPEND FLAG " -s WASM=0")
 endif()
+
+message("FLAG: ${FLAG}")
+set_target_properties(${EXE_NAME} PROPERTIES
+    LINK_FLAGS ${FLAG}
+)
