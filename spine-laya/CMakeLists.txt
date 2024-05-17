@@ -42,12 +42,15 @@ add_executable(${EXE_NAME} ${SRC_FILES} ${SPINE_FILES})
 
 set(FLAG "--bind -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 ")
 
-
-# if(${CMAKE_BUILD_TYPE} STREQUAL "release")
-#   list(APPEND ${FLAG} " -O0")
-# else()
-  string(APPEND FLAG "-O3")
-# endif()
+message("CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
+if(${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
+  string(APPEND FLAG " -O3")
+  string(APPEND FLAG " -g0")
+  string(APPEND FLAG " -sMODULARIZE")
+else()
+  string(APPEND FLAG " -g3")
+  string(APPEND FLAG " -O0")
+endif()
 
 if(${VERSION} STREQUAL "js")
   string(APPEND FLAG " -s WASM=0")

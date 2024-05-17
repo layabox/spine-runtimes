@@ -28,7 +28,7 @@ T val_as(const val& v) {
 }
 
 template<typename T>
-inline val createMemoryView(Vector<T> &data) {
+inline auto createMemoryView(Vector<T> &data) {
     return val(typed_memory_view(data.size(), data.buffer()));
 }
 
@@ -207,6 +207,29 @@ void mergeBuffer(Vector<float>* vertices,size_t verticesCount, Vector<unsigned s
     totalVertexCount += verticesCount;
 }
 
+val getUVs(float u, float v, float u2, float v2, bool rotate) {
+    auto _uvs = val::array();
+	if (rotate) {
+        _uvs.set(0,u2);
+        _uvs.set(1,v2);
+        _uvs.set(2,u);
+        _uvs.set(3,v2);
+        _uvs.set(4,u);
+        _uvs.set(5,v);
+        _uvs.set(6,u2);
+        _uvs.set(7,v);
+	} else {
+        _uvs.set(0,u);
+        _uvs.set(1,v2);
+        _uvs.set(2,u);
+        _uvs.set(3,v);
+        _uvs.set(4,u2);
+        _uvs.set(5,v);
+        _uvs.set(6,u2);
+        _uvs.set(7,v2);
+	}
+    return _uvs;
+}
 
 void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float slotRangeStart = -1,float slotRangeEnd = -1) {
     Vector<unsigned short> quadIndices = Vector<unsigned short>();
@@ -424,12 +447,13 @@ EMSCRIPTEN_BINDINGS(spine)
         .property("balance", &EventData::getBalance)
         .property("intValue", &EventData::getIntValue)
         .property("floatValue", &EventData::getFloatValue)
-        .property<val>("stringValue",optional_override([](EventData data)
-                {return val::module_property(data.getStringValue().buffer()); }))
-        .property<val>("audioPath",optional_override([](EventData data)
-                {return val::module_property(data.getAudioPath().buffer()); }))
-        .property<val>("eventName",optional_override([](EventData data)
-                {return val::module_property(data.getName().buffer()); }))
+        .function("getStringValue",optional_override([](EventData data)
+                {return getString(data.getStringValue()); }))
+        .function("getAudioPath",optional_override([](EventData data)
+                {return getString(data.getAudioPath()); }))
+        .function("getName",optional_override([](EventData data)
+                {return getString(data.getName()); }))
+
         ;
 
     class_<Event>("Event")
@@ -553,6 +577,11 @@ EMSCRIPTEN_BINDINGS(spine)
                 {return createMemoryView(att->getUVs());}), allow_raw_pointers())
         .function("getPage" ,optional_override([](RegionAttachment *att)
                 {return ((AtlasRegion*)att->getRendererObject())->page;}), allow_raw_pointers())
+        .function("getRotateUVs" ,optional_override([](RegionAttachment *att)
+                {
+                    AtlasRegion *regionP  = (AtlasRegion*)att->getRendererObject();
+                    return getUVs(regionP->u, regionP->v, regionP->u2, regionP->v2, regionP->rotate);
+                }), allow_raw_pointers())
         ;
 
     class_<MeshAttachment,base<Attachment>>("MeshAttachment")
@@ -603,7 +632,7 @@ EMSCRIPTEN_BINDINGS(spine)
         .function("getPage" ,optional_override([](MeshAttachment *mesh)
                 {return ((AtlasRegion*)mesh->getRendererObject())->page;}), allow_raw_pointers())
         .function("getBones",optional_override([](MeshAttachment *mesh)
-                {return vectorToArray(mesh->getBones());}),allow_raw_pointers())
+                {return createMemoryView(mesh->getBones());}),allow_raw_pointers())
         ;
     
     class_<ClippingAttachment,base<Attachment>>("ClippingAttachment")
@@ -663,23 +692,18 @@ EMSCRIPTEN_BINDINGS(spine)
                 {skin->setAttachment(slotIndex, createString(name), attachment);}),allow_raw_pointers())
         .function("getAttachments",optional_override([](Skin *skin)
                 {
-                    val datas = val::array();
+                    val datas = val::object();
                     Skin::AttachmentMap::Entries attachments = skin->getAttachments();
-                    size_t lastslotIndex = -1;
-                    val arr ;
-                    size_t index = 0;
                     while (attachments.hasNext()) {
                         Skin::AttachmentMap::Entry entry = attachments.next();
-                        if(lastslotIndex != entry._slotIndex){
-                            if(lastslotIndex!=-1){
-                                datas.set(lastslotIndex,arr);
-                            }
-                            lastslotIndex = entry._slotIndex;
-                            index = 0;
-                            arr = val::array();
-                        }
-                        arr.set(entry._name,entry._attachment);
-                        index++;
+                        if(datas.call<bool>("hasOwnProperty",entry._slotIndex)){
+                            val arr = datas[entry._slotIndex];
+                            arr.set(getString(entry._name),entry._attachment);
+                        }else{
+                            val arr = val::object();
+                            datas.set(entry._slotIndex,arr);
+                            arr.set(getString(entry._name),entry._attachment);
+                        };
                     }
                     return datas;
                 }),allow_raw_pointers())
@@ -728,7 +752,7 @@ EMSCRIPTEN_BINDINGS(spine)
         .function("getFrameCount", &DrawOrderTimeline::getFrameCount)
         .function("getFrames", optional_override([](DrawOrderTimeline *timeline)
                 {
-                    return  vectorToArray(timeline->getFrames());
+                    return  createMemoryView(timeline->getFrames());
                 }),allow_raw_pointers())
         .function("setFrame", optional_override([](DrawOrderTimeline *timeline, int frameIndex, float time, std::vector<int> &drawOrder)
                 {
@@ -753,7 +777,7 @@ EMSCRIPTEN_BINDINGS(spine)
         .function("getFrameCount", &ColorTimeline::getFrameCount)
         .function("getFrames", optional_override([](ColorTimeline *timeline)
                 {
-                    return  vectorToArray(timeline->getFrames());
+                    return  createMemoryView(timeline->getFrames());
                 }),allow_raw_pointers())
         .function("setFrame", optional_override([](ColorTimeline *timeline, int frameIndex, float time, Color &color)
                 {
@@ -761,6 +785,30 @@ EMSCRIPTEN_BINDINGS(spine)
                 }),allow_raw_pointers())
         .function("getSlotIndex", &ColorTimeline::getSlotIndex)
         .function("setSlotIndex", &ColorTimeline::setSlotIndex)
+        ;
+    
+    class_<EventTimeline,base<Timeline>>("EventTimeline")
+        .function("apply",optional_override([](EventTimeline *timeline, Skeleton &skeleton, float lastTime, float time, std::vector<Event *> &pEvents, float alpha,MixBlend blend, MixDirection direction)
+                {
+                    timeline->apply(skeleton, lastTime, time, createVector(pEvents), alpha, blend, direction);
+                }),allow_raw_pointers())
+        .function("getPropertyId", &EventTimeline::getPropertyId)
+        .function("getFrameCount", &EventTimeline::getFrameCount)
+        .function("setFrame", optional_override([](EventTimeline *timeline, int frameIndex, Event *event)
+                {
+                    timeline->setFrame(frameIndex, event);
+                }),allow_raw_pointers())
+        .function("getFrames", optional_override([](EventTimeline *timeline)
+                {
+                    auto frame  = timeline->getFrames();
+                    return  val(typed_memory_view(frame.size(), frame.buffer()));
+                }),allow_raw_pointers())
+        .function("getEvents", optional_override([](EventTimeline *timeline)
+                {
+                    return vectorToArray(timeline->getEvents());
+                }),allow_raw_pointers())
+       
+
         ;
 
     class_<Animation>("Animation")
@@ -778,6 +826,15 @@ EMSCRIPTEN_BINDINGS(spine)
     class_<TrackEntry>("TrackEntry")
         .function("getAnimation", &TrackEntry::getAnimation,allow_raw_pointers())
         .function("getLoop", &TrackEntry::getLoop)
+        .function("getAnimationLast", &TrackEntry::getAnimationLast)
+        .function("getAnimationTime", &TrackEntry::getAnimationTime)
+        .function("getTrackTime", &TrackEntry::getTrackTime)
+        .function("setNextAnimationLast", &TrackEntry::setAnimationLast)
+        .function("getAnimationStart",&TrackEntry::getAnimationStart)
+        .function("getAnimationEnd",&TrackEntry::getAnimationEnd)
+        .function("getTimeScale",&TrackEntry::getTimeScale)
+        .function("getMixTime",&TrackEntry::getMixTime)
+        .function("getAlpha",&TrackEntry::getAlpha)
         ;
         
     class_<SkeletonBinary>("SkeletonBinary")
@@ -966,13 +1023,13 @@ EMSCRIPTEN_BINDINGS(spine)
                 {
                     stat->setListener(listener);
                 }), allow_raw_pointers())
-        .function("setAnimation", optional_override([](AnimationState *stat, val trackIndex, std::string animationName, bool loop)
+        .function("setAnimation", optional_override([](AnimationState *stat, size_t trackIndex, std::string animationName, bool loop)
                 {
-                    return  stat->setAnimation(val_as<size_t>(trackIndex), createString(animationName), loop);
+                    return  stat->setAnimation(trackIndex, createString(animationName), loop);
                 }),allow_raw_pointers())
-        .function("getCurrent", optional_override([](AnimationState *stat, val trackIndex)
+        .function("getCurrent", optional_override([](AnimationState *stat, size_t trackIndex)
                 {
-                    return  stat->getCurrent(val_as<size_t>(trackIndex));
+                    return  stat->getCurrent(trackIndex);
                 }),allow_raw_pointers())
         ;
 }
