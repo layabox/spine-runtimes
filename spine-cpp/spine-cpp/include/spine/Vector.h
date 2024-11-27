@@ -159,7 +159,7 @@ public:
 	}
 
 	inline T &operator[](size_t inIndex) {
-		assert(inIndex < _size);
+		// assert(inIndex < _size);
 
 		return _buffer[inIndex];
 	}

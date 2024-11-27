@@ -71,42 +71,42 @@ int TrackEntry::getTrackIndex() { return _trackIndex; }
 
 Animation *TrackEntry::getAnimation() { return _animation; }
 
-bool TrackEntry::getLoop() { return _loop; }
+bool TrackEntry::getLoop() const { return _loop; }
 
 void TrackEntry::setLoop(bool inValue) { _loop = inValue; }
 
-bool TrackEntry::getHoldPrevious() { return _holdPrevious; }
+bool TrackEntry::getHoldPrevious() const { return _holdPrevious; }
 
 void TrackEntry::setHoldPrevious(bool inValue) { _holdPrevious = inValue; }
 
-float TrackEntry::getDelay() { return _delay; }
+float TrackEntry::getDelay() const{ return _delay; }
 
 void TrackEntry::setDelay(float inValue) { _delay = inValue; }
 
-float TrackEntry::getTrackTime() { return _trackTime; }
+float TrackEntry::getTrackTime()const{ return _trackTime; }
 
 void TrackEntry::setTrackTime(float inValue) { _trackTime = inValue; }
 
-float TrackEntry::getTrackEnd() { return _trackEnd; }
+float TrackEntry::getTrackEnd() const{ return _trackEnd; }
 
 void TrackEntry::setTrackEnd(float inValue) { _trackEnd = inValue; }
 
-float TrackEntry::getAnimationStart() { return _animationStart; }
+float TrackEntry::getAnimationStart()const { return _animationStart; }
 
 void TrackEntry::setAnimationStart(float inValue) { _animationStart = inValue; }
 
-float TrackEntry::getAnimationEnd() { return _animationEnd; }
+float TrackEntry::getAnimationEnd() const{ return _animationEnd; }
 
 void TrackEntry::setAnimationEnd(float inValue) { _animationEnd = inValue; }
 
-float TrackEntry::getAnimationLast() { return _animationLast; }
+float TrackEntry::getAnimationLast() const{ return _animationLast; }
 
 void TrackEntry::setAnimationLast(float inValue) {
 	_animationLast = inValue;
 	_nextAnimationLast = inValue;
 }
 
-float TrackEntry::getAnimationTime() {
+float TrackEntry::getAnimationTime() const{
 	if (_loop) {
 		float duration = _animationEnd - _animationStart;
 		if (duration == 0) return _animationStart;
@@ -116,37 +116,37 @@ float TrackEntry::getAnimationTime() {
 	return MathUtil::min(_trackTime + _animationStart, _animationEnd);
 }
 
-float TrackEntry::getTimeScale() { return _timeScale; }
+float TrackEntry::getTimeScale() const{ return _timeScale; }
 
 void TrackEntry::setTimeScale(float inValue) { _timeScale = inValue; }
 
-float TrackEntry::getAlpha() { return _alpha; }
+float TrackEntry::getAlpha() const{ return _alpha; }
 
 void TrackEntry::setAlpha(float inValue) { _alpha = inValue; }
 
-float TrackEntry::getEventThreshold() { return _eventThreshold; }
+float TrackEntry::getEventThreshold() const { return _eventThreshold; }
 
 void TrackEntry::setEventThreshold(float inValue) { _eventThreshold = inValue; }
 
-float TrackEntry::getAttachmentThreshold() { return _attachmentThreshold; }
+float TrackEntry::getAttachmentThreshold() const{ return _attachmentThreshold; }
 
 void TrackEntry::setAttachmentThreshold(float inValue) { _attachmentThreshold = inValue; }
 
-float TrackEntry::getDrawOrderThreshold() { return _drawOrderThreshold; }
+float TrackEntry::getDrawOrderThreshold() const{ return _drawOrderThreshold; }
 
 void TrackEntry::setDrawOrderThreshold(float inValue) { _drawOrderThreshold = inValue; }
 
 TrackEntry *TrackEntry::getNext() { return _next; }
 
-bool TrackEntry::isComplete() {
+bool TrackEntry::isComplete() const{
 	return _trackTime >= _animationEnd - _animationStart;
 }
 
-float TrackEntry::getMixTime() { return _mixTime; }
+float TrackEntry::getMixTime() const{ return _mixTime; }
 
 void TrackEntry::setMixTime(float inValue) { _mixTime = inValue; }
 
-float TrackEntry::getMixDuration() { return _mixDuration; }
+float TrackEntry::getMixDuration() const{ return _mixDuration; }
 
 void TrackEntry::setMixDuration(float inValue) { _mixDuration = inValue; }
 
@@ -156,7 +156,7 @@ TrackEntry *TrackEntry::getMixingTo() { return _mixingTo; }
 
 void TrackEntry::setMixBlend(MixBlend blend) { _mixBlend = blend; }
 
-MixBlend TrackEntry::getMixBlend() { return _mixBlend; }
+MixBlend TrackEntry::getMixBlend() const{ return _mixBlend; }
 
 void TrackEntry::resetRotationDirections() {
 	_timelinesRotation.clear();

@@ -66,6 +66,10 @@ void VertexAttachment::computeWorldVertices(Slot &slot, size_t start, size_t cou
 	Vector<float> *deformArray = &slot.getDeform();
 	Vector<float> *vertices = &_vertices;
 	Vector<size_t> &bones = _bones;
+	float *vertexBuffer = vertices->buffer();
+	size_t *boneBuffer = bones.buffer();
+	float *deformBuffer = deformArray->buffer();
+
 	if (bones.size() == 0) {
 		if (deformArray->size() > 0) vertices = deformArray;
 
@@ -74,8 +78,8 @@ void VertexAttachment::computeWorldVertices(Slot &slot, size_t start, size_t cou
 		float y = bone._worldY;
 		float a = bone._a, b = bone._b, c = bone._c, d = bone._d;
 		for (size_t vv = start, w = offset; w < count; vv += 2, w += stride) {
-			float vx = (*vertices)[vv];
-			float vy = (*vertices)[vv + 1];
+			float vx = vertexBuffer[vv];
+			float vy = vertexBuffer[vv + 1];
 			worldVertices[w] = vx * a + vy * b + x;
 			worldVertices[w + 1] = vx * c + vy * d + y;
 		}
@@ -84,23 +88,23 @@ void VertexAttachment::computeWorldVertices(Slot &slot, size_t start, size_t cou
 
 	int v = 0, skip = 0;
 	for (size_t i = 0; i < start; i += 2) {
-		int n = bones[v];
+		int n = boneBuffer[v];
 		v += n + 1;
 		skip += n;
 	}
 
-	Vector<Bone *> &skeletonBones = skeleton.getBones();
+	Bone **skeletonBones = skeleton.getBones().buffer();
 	if (deformArray->size() == 0) {
 		for (size_t w = offset, b = skip * 3; w < count; w += stride) {
 			float wx = 0, wy = 0;
-			int n = bones[v++];
+			int n = boneBuffer[v++];
 			n += v;
 			for (; v < n; v++, b += 3) {
-				Bone *boneP = skeletonBones[bones[v]];
+				Bone *boneP = skeletonBones[boneBuffer[v]];
 				Bone &bone = *boneP;
-				float vx = (*vertices)[b];
-				float vy = (*vertices)[b + 1];
-				float weight = (*vertices)[b + 2];
+				float vx = vertexBuffer[b];
+				float vy = vertexBuffer[b + 1];
+				float weight = vertexBuffer[b + 2];
 				wx += (vx * bone._a + vy * bone._b + bone._worldX) * weight;
 				wy += (vx * bone._c + vy * bone._d + bone._worldY) * weight;
 			}
@@ -110,14 +114,14 @@ void VertexAttachment::computeWorldVertices(Slot &slot, size_t start, size_t cou
 	} else {
 		for (size_t w = offset, b = skip * 3, f = skip << 1; w < count; w += stride) {
 			float wx = 0, wy = 0;
-			int n = bones[v++];
+			int n = boneBuffer[v++];
 			n += v;
 			for (; v < n; v++, b += 3, f += 2) {
-				Bone *boneP = skeletonBones[bones[v]];
+				Bone *boneP = skeletonBones[boneBuffer[v]];
 				Bone &bone = *boneP;
-				float vx = (*vertices)[b] + (*deformArray)[f];
-				float vy = (*vertices)[b + 1] + (*deformArray)[f + 1];
-				float weight = (*vertices)[b + 2];
+				float vx = vertexBuffer[b] + deformBuffer[f];
+				float vy = vertexBuffer[b + 1] + deformBuffer[f + 1];
+				float weight = vertexBuffer[b + 2];
 				wx += (vx * bone._a + vy * bone._b + bone._worldX) * weight;
 				wy += (vx * bone._c + vy * bone._d + bone._worldY) * weight;
 			}

@@ -95,7 +95,7 @@ namespace spine {
 		Animation* getAnimation();
 
 		/// If true, the animation will repeat. If false, it will not, instead its last frame is applied if played beyond its duration.
-		bool getLoop();
+		bool getLoop() const;
 		void setLoop(bool inValue);
 
 		/// If true, when mixing from the previous animation to this animation, the previous animation is applied as normal instead
@@ -109,18 +109,18 @@ namespace spine {
 		///
 		/// Snapping will occur if holdPrevious is true and this animation does not key all the same properties as the
 		/// previous animation.
-		bool getHoldPrevious();
+		bool getHoldPrevious() const;
 		void setHoldPrevious(bool inValue);
 
 		/// Seconds to postpone playing the animation. When a track entry is the current track entry, delay postpones incrementing
 		/// the track time. When a track entry is queued, delay is the time from the start of the previous animation to when the
 		/// track entry will become the current track entry.
-		float getDelay();
+		float getDelay() const;
 		void setDelay(float inValue);
 
 		/// Current time in seconds this track entry has been the current track entry. The track time determines
 		/// TrackEntry.AnimationTime. The track time can be set to start the animation at a time other than 0, without affecting looping.
-		float getTrackTime();
+		float getTrackTime() const;
 		void setTrackTime(float inValue);
 
 		/// The track time in seconds when this animation will be removed from the track. Defaults to the animation duration for
@@ -130,34 +130,34 @@ namespace spine {
 		///
 		/// It may be desired to use AnimationState.addEmptyAnimation(int, float, float) to mix the properties back to the
 		/// setup pose over time, rather than have it happen instantly.
-		float getTrackEnd();
+		float getTrackEnd() const;
 		void setTrackEnd(float inValue);
 
 		/// Seconds when this animation starts, both initially and after looping. Defaults to 0.
 		///
 		/// When changing the animation start time, it often makes sense to set TrackEntry.AnimationLast to the same value to
 		/// prevent timeline keys before the start time from triggering.
-		float getAnimationStart();
+		float getAnimationStart() const;
 		void setAnimationStart(float inValue);
 
 		/// Seconds for the last frame of this animation. Non-looping animations won't play past this time. Looping animations will
 		/// loop back to TrackEntry.AnimationStart at this time. Defaults to the animation duration.
-		float getAnimationEnd();
+		float getAnimationEnd() const;
 		void setAnimationEnd(float inValue);
 
 		/// The time in seconds this animation was last applied. Some timelines use this for one-time triggers. Eg, when this
 		/// animation is applied, event timelines will fire all events between the animation last time (exclusive) and animation time
 		/// (inclusive). Defaults to -1 to ensure triggers on frame 0 happen the first time this animation is applied.
-		float getAnimationLast();
+		float getAnimationLast() const;
 		void setAnimationLast(float inValue);
 
 		/// Uses TrackEntry.TrackTime to compute the animation time between TrackEntry.AnimationStart. and
 		/// TrackEntry.AnimationEnd. When the track time is 0, the animation time is equal to the animation start time.
-		float getAnimationTime();
+		float getAnimationTime() const;
 
 		/// Multiplier for the delta time when the animation state is updated, causing time for this animation to play slower or
 		/// faster. Defaults to 1.
-		float getTimeScale();
+		float getTimeScale() const;
 		void setTimeScale(float inValue);
 
 		/// Values less than 1 mix this animation with the last skeleton pose. Defaults to 1, which overwrites the last skeleton pose with
@@ -165,36 +165,36 @@ namespace spine {
 		///
 		/// Typically track 0 is used to completely pose the skeleton, then alpha can be used on higher tracks. It doesn't make sense
 		/// to use alpha on track 0 if the skeleton pose is from the last frame render.
-		float getAlpha();
+		float getAlpha() const;
 		void setAlpha(float inValue);
 
 		///
 		/// When the mix percentage (mix time / mix duration) is less than the event threshold, event timelines for the animation
 		/// being mixed out will be applied. Defaults to 0, so event timelines are not applied for an animation being mixed out.
-		float getEventThreshold();
+		float getEventThreshold() const;
 		void setEventThreshold(float inValue);
 
 		/// When the mix percentage (mix time / mix duration) is less than the attachment threshold, attachment timelines for the
 		/// animation being mixed out will be applied. Defaults to 0, so attachment timelines are not applied for an animation being
 		/// mixed out.
-		float getAttachmentThreshold();
+		float getAttachmentThreshold() const;
 		void setAttachmentThreshold(float inValue);
 
 		/// When the mix percentage (mix time / mix duration) is less than the draw order threshold, draw order timelines for the
 		/// animation being mixed out will be applied. Defaults to 0, so draw order timelines are not applied for an animation being
 		/// mixed out.
-		float getDrawOrderThreshold();
+		float getDrawOrderThreshold() const;
 		void setDrawOrderThreshold(float inValue);
 
 		/// The animation queued to start after this animation, or NULL.
 		TrackEntry* getNext();
 
 		/// Returns true if at least one loop has been completed.
-		bool isComplete();
+		bool isComplete() const;
 
 		/// Seconds from 0 to the mix duration when mixing from the previous animation to this animation. May be slightly more than
 		/// TrackEntry.MixDuration when the mix is complete.
-		float getMixTime();
+		float getMixTime() const;
 		void setMixTime(float inValue);
 
 		/// Seconds for mixing from the previous animation to this animation. Defaults to the value provided by
@@ -205,10 +205,10 @@ namespace spine {
 		///
 		/// When using AnimationState::addAnimation(int, Animation, bool, float) with a delay
 		/// less than or equal to 0, note the Delay is set using the mix duration from the AnimationStateData
-		float getMixDuration();
+		float getMixDuration() const;
 		void setMixDuration(float inValue);
 
-		MixBlend getMixBlend();
+		MixBlend getMixBlend() const;
 		void setMixBlend(MixBlend blend);
 
 		/// The track entry for the previous animation when mixing from the previous animation to this animation, or NULL if no

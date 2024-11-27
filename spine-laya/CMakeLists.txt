@@ -40,7 +40,7 @@ set(EMCC_GLUE_ARGS
 
 add_executable(${EXE_NAME} ${SRC_FILES} ${SPINE_FILES})
 
-set(FLAG "--bind -s EXPORT_NAME=Spine -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 ")
+set(FLAG "--bind -s EXPORT_NAME=Spine -s INITIAL_MEMORY=16777216 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s MODULARIZE=1 ")
 
 message("CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
 if(${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
@@ -50,6 +50,7 @@ if(${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
 else()
   string(APPEND FLAG " -g3")
   string(APPEND FLAG " -O0")
+ 
 endif()
 
 if(${VERSION} STREQUAL "js")

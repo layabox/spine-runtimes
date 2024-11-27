@@ -58,8 +58,9 @@ void RotateTimeline::apply(Skeleton &skeleton, float lastTime, float time, Vecto
 
 	Bone *bone = skeleton.getBones()[_boneIndex];
 	if (!bone->_active) return;
-
-	if (time < _frames[0]) {
+	float* frames = _frames.buffer();
+	size_t framesCount = _frames.size();
+	if (time < frames[0]) {
 		switch (blend) {
 		case MixBlend_Setup: {
 			bone->_rotation = bone->_data._rotation;
@@ -78,8 +79,8 @@ void RotateTimeline::apply(Skeleton &skeleton, float lastTime, float time, Vecto
 		return;
 	}
 
-	if (time >= _frames[_frames.size() - ENTRIES]) {
-		float r = _frames[_frames.size() + PREV_ROTATION];
+	if (time >= frames[framesCount - ENTRIES]) {
+		float r = frames[framesCount+ PREV_ROTATION];
 		switch (blend) {
 			case MixBlend_Setup:
 				bone->_rotation = bone->_data._rotation + r * alpha;
@@ -97,11 +98,11 @@ void RotateTimeline::apply(Skeleton &skeleton, float lastTime, float time, Vecto
 
 	// Interpolate between the previous frame and the current frame.
 	int frame = Animation::binarySearch(_frames, time, ENTRIES);
-	float prevRotation = _frames[frame + PREV_ROTATION];
-	float frameTime = _frames[frame];
+	float prevRotation = frames[frame + PREV_ROTATION];
+	float frameTime = frames[frame];
 	float percent = getCurvePercent((frame >> 1) - 1,
-		1 - (time - frameTime) / (_frames[frame + PREV_TIME] - frameTime));
-	float r = _frames[frame + ROTATION] - prevRotation;
+		1 - (time - frameTime) / (frames[frame + PREV_TIME] - frameTime));
+	float r = frames[frame + ROTATION] - prevRotation;
 	r = prevRotation + (r - (16384 - (int)(16384.499999999996 - r / 360)) * 360) * percent;
 	switch (blend) {
 		case MixBlend_Setup:
@@ -115,7 +116,6 @@ void RotateTimeline::apply(Skeleton &skeleton, float lastTime, float time, Vecto
 			bone->_rotation += (r - (16384 - (int)(16384.499999999996 - r / 360)) * 360) * alpha;
 	}
 }
-
 int RotateTimeline::getPropertyId() {
 	return ((int) TimelineType_Rotate << 24) + _boneIndex;
 }

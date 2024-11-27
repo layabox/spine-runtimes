@@ -15,11 +15,63 @@ void print(const std::string &str) {
     std::cout << str << std::endl;
 }
 
-
 using namespace emscripten;
 
 using namespace spine;
 
+struct VertexDatas
+{
+    float vertices[2];
+    float colors[4];
+    float uvs[2];
+};
+
+class LayaAttachmentVertices {
+public:
+	LayaAttachmentVertices (void* page, size_t verticesCount, size_t indexsCount):m_trianglesCount(indexsCount),m_verticesCount(verticesCount),m_page(page) {
+        m_vertexDatas = new VertexDatas[verticesCount];
+        m_triangles = new unsigned short[indexsCount];
+    }
+	virtual ~LayaAttachmentVertices (){
+        delete[] m_vertexDatas;
+        delete[] m_triangles;
+    }
+
+	void* m_page = nullptr;
+    size_t m_verticesCount;
+    size_t m_trianglesCount;
+    VertexDatas* m_vertexDatas;
+    unsigned short* m_triangles;
+};
+
+static void deleteAttachmentVertices (void* vertices) {
+	delete (LayaAttachmentVertices *) vertices;
+}
+
+static unsigned short quadTriangles[6] = {0, 1, 2, 2, 3, 0};
+
+static void setAttachmentVertices(RegionAttachment* attachment) {
+	LayaAttachmentVertices* attachmentVertices = new LayaAttachmentVertices(attachment->getRendererObject(), 4, 6);
+    std::memcpy(attachmentVertices->m_triangles, quadTriangles,  6 * sizeof(unsigned short));
+	VertexDatas* vertices = attachmentVertices->m_vertexDatas;
+	for (int i = 0, ii = 0; i < 4; ++i, ii += 2) {
+        vertices[i].uvs[0] = attachment->getUVs()[ii];
+        vertices[i].uvs[1] = attachment->getUVs()[ii + 1];
+	}
+	attachment->setRendererObject(attachmentVertices, deleteAttachmentVertices);
+}
+
+static void setAttachmentVertices(MeshAttachment* attachment) {
+	LayaAttachmentVertices* attachmentVertices = new LayaAttachmentVertices(attachment->getRendererObject(),
+																	attachment->getWorldVerticesLength() >> 1, attachment->getTriangles().size());
+    std::memcpy(attachmentVertices->m_triangles, attachment->getTriangles().buffer(),  attachment->getTriangles().size() * sizeof(unsigned short));                                                       
+	VertexDatas* vertices = attachmentVertices->m_vertexDatas;
+	for (int i = 0, ii = 0, nn = attachment->getWorldVerticesLength(); ii < nn; ++i, ii += 2) {
+        vertices[i].uvs[0] = attachment->getUVs()[ii];
+        vertices[i].uvs[1] = attachment->getUVs()[ii + 1];
+	}
+	attachment->setRendererObject(attachmentVertices, deleteAttachmentVertices);
+}
 
 
 template<typename T>
@@ -30,6 +82,11 @@ T val_as(const val& v) {
 template<typename T>
 inline auto createMemoryView(Vector<T> &data) {
     return val(typed_memory_view(data.size(), data.buffer()));
+}
+
+template<typename T>
+T* wrapPointer(size_t ptr){
+    return (T*)ptr;
 }
 
 class LayaExtension: public DefaultSpineExtension {
@@ -47,15 +104,28 @@ class LayaExtension: public DefaultSpineExtension {
         }
 };
 
+
+class LayaAtlasAttachmentLoader: public AtlasAttachmentLoader {
+public:
+    LayaAtlasAttachmentLoader(Atlas* atlas):AtlasAttachmentLoader(atlas){}
+    virtual ~LayaAtlasAttachmentLoader(){}
+    void configureAttachment(Attachment* attachment) override{
+        if (attachment->getRTTI().isExactly(RegionAttachment::rtti)) {
+            setAttachmentVertices((RegionAttachment*)attachment);
+        } else if (attachment->getRTTI().isExactly(MeshAttachment::rtti)) {
+            setAttachmentVertices((MeshAttachment*)attachment);
+        }
+    }
+};
 spine::SpineExtension* spine::getDefaultExtension() {
 	return new LayaExtension();
 }
 
-inline std::string getString(const String& str) {
+inline val getString(const String& str) {
      if(str.length()<=0){
-        return "";
+        return val("");
     }else{
-        return std::string(str.buffer());
+        return val(str.buffer());
     }
 }
 
@@ -99,7 +169,7 @@ public:
 
     void load(AtlasPage& page, const String& path) override {
         page.texturePath = path;
-        call<void>("load", page, getString(path));
+        call<void>("load", (size_t)&page, getString(path));
     }
 
     void unload(void* texture) override {
@@ -112,23 +182,30 @@ public:
     EMSCRIPTEN_WRAPPER(AnimationStateListenerObjectWarpper);
 
     void callback(AnimationState* state, EventType type, TrackEntry* entry, Event* event) override {
-        call<void>("callback", state, type, entry, event);
+        if(event == nullptr){
+            call<void>("callback", (size_t)&state, type, (size_t)&entry, (size_t)nullptr);
+        }
+        else{
+            call<void>("callback", (size_t)&state, type, (size_t)&entry, (size_t)&event);
+        }
     }
 };
 
 
-SkeletonClipping clipper = SkeletonClipping();
+
+
 Color color = Color(1, 1, 1, 1);
 Vector<float> vbHelpBuffer = Vector<float>();
-Vector<float>* vbBuffer =new Vector<float>();
-Vector<unsigned short>* ibBuffer =new Vector<unsigned short>();
+Vector<unsigned short> ibHelpBuffer = Vector<unsigned short>();
+SkeletonClipping clipper = SkeletonClipping();
+    
 
 float *_vbBuffer = nullptr;
 unsigned short *_ibBuffer = nullptr;
 unsigned short _maxVb = 0;
 unsigned short _maxIb = 0;
-unsigned short _ibIndex = 0;
-unsigned short totalVertexCount = 0;
+unsigned short _totalIbCount = 0;
+unsigned short _totalVertexCount = 0;
 
 
 bool createBuffer(size_t maxVb,size_t maxIb){
@@ -141,13 +218,14 @@ bool createBuffer(size_t maxVb,size_t maxIb){
     _maxVb = maxVb;
     _maxIb = maxIb;
     if(_vbBuffer != nullptr){
-        delete _vbBuffer;
+        SpineExtension::free(_vbBuffer,__FILE__, __LINE__);
     }
     if(_ibBuffer != nullptr){
-        delete _ibBuffer;
+        SpineExtension::free(_ibBuffer,__FILE__, __LINE__);
     }
     _vbBuffer = SpineExtension::calloc<float>(maxVb,__FILE__, __LINE__);
     _ibBuffer = SpineExtension::calloc<unsigned short>(maxIb,__FILE__, __LINE__);
+    
     return true;
 }
 
@@ -161,50 +239,79 @@ val getIndexsBuffer(){
 }
 
 bool canMergeToBatch(size_t verticesCount,size_t indexCount ,unsigned vertexSize){
-    if((verticesCount+totalVertexCount)*vertexSize > _maxVb){
+    if((verticesCount+_totalVertexCount)*vertexSize > _maxVb){
         return false;
     }
-    if(indexCount + _ibIndex > _maxIb){
+    if(indexCount + _totalIbCount > _maxIb){
         return false;
     }
     return true;
 }
 
 bool renderBatch(const val &drawhander ,unsigned vertexSize,const AtlasPage* lastTexture, const BlendMode& blendMode){
-    if(totalVertexCount>0&& _ibIndex>0){
-        drawhander(totalVertexCount*vertexSize,_ibIndex,getString(lastTexture->texturePath),blendMode);
-        _ibIndex = 0;
-        totalVertexCount = 0;
+    if(_totalVertexCount>0&& _totalIbCount>0&& lastTexture != nullptr){
+        drawhander(_totalVertexCount*vertexSize,_totalIbCount,(size_t)lastTexture,blendMode);
+        _totalIbCount = 0;
+        _totalVertexCount = 0;
         return false;
     }
     return false;
 }
 
 
-void mergeBuffer(Vector<float>* vertices,size_t verticesCount, Vector<unsigned short>* indices,bool twoColorTint,unsigned vertexSize,Vector<float>* uvs,Color *color){
-    for (int i = 0; i < verticesCount; i++) {
-        size_t bufferOff = (totalVertexCount+i)*vertexSize;
-        int index = i*2;
-        _vbBuffer[bufferOff] = (*vertices)[index];
-        _vbBuffer[bufferOff+1] = (*vertices)[index+1];
-        _vbBuffer[bufferOff+2] = color->r;
-        _vbBuffer[bufferOff+3] = color->g;
-        _vbBuffer[bufferOff+4] = color->b;
-        _vbBuffer[bufferOff+5] = color->a;
-        _vbBuffer[bufferOff+6] = (*uvs)[index];
-        _vbBuffer[bufferOff+7] = (*uvs)[index+1];
-        if(twoColorTint){
-            _vbBuffer[bufferOff+8] = 0;
-            _vbBuffer[bufferOff+9] = 0;
-            _vbBuffer[bufferOff+10] = 0;
-            _vbBuffer[bufferOff+11] = 0;
+void mergeBuffer(float* vbBuffer, size_t verticesCount,size_t vertexSize, unsigned short* indices,size_t indicesCount,bool twoColorTint){
+    float* vbPtr = _vbBuffer + _totalVertexCount * vertexSize;
+    unsigned short* ibPtr = _ibBuffer + _totalIbCount;
+
+    std::memcpy(vbPtr, vbBuffer, verticesCount * vertexSize * sizeof(float));
+     if(_totalVertexCount == 0){
+        std::memcpy(ibPtr, indices,  indicesCount * sizeof(unsigned short));
+    }else{
+        for (size_t i = 0,newCount = size_t(indicesCount/3); i < newCount; i++) {
+            *ibPtr++ = _totalVertexCount + *indices++;
+            *ibPtr++ = _totalVertexCount + *indices++;
+            *ibPtr++ = _totalVertexCount + *indices++;
         }
     }
-    
-    for (int ii = 0; ii < (int) indices->size(); ii++){
-        _ibBuffer[_ibIndex++] = totalVertexCount+(*indices)[ii];
+
+
+    _totalIbCount += indicesCount;
+    _totalVertexCount += verticesCount;
+}
+
+void mergeBuffer(float* pos,float* uv, size_t verticesCount,size_t vertexSize, unsigned short* indices,size_t indicesCount,bool twoColorTint){
+    float* vbPtr = _vbBuffer + _totalVertexCount * vertexSize;
+    unsigned short* ibPtr = _ibBuffer + _totalIbCount;
+
+    for(int i = 0;i<verticesCount;i++){
+        *vbPtr++ = *pos++;
+        *vbPtr++ = *pos++;
+        *vbPtr++ = color.r;
+        *vbPtr++ = color.g;
+        *vbPtr++ = color.b;
+        *vbPtr++ = color.a;
+        *vbPtr++ = *uv++;
+        *vbPtr++ = *uv++;
+        if(twoColorTint){
+            *vbPtr++ = color.r;
+            *vbPtr++ = color.g;
+            *vbPtr++ = color.b;
+            *vbPtr++ = color.a;
+        }
     }
-    totalVertexCount += verticesCount;
+
+    if(_totalVertexCount == 0){
+        std::memcpy(ibPtr, indices,  indicesCount * sizeof(unsigned short));
+    }else{
+        for (size_t i = 0,newCount = size_t(indicesCount/3); i < newCount; i++) {
+            *ibPtr++ = _totalVertexCount + *indices++;
+            *ibPtr++ = _totalVertexCount + *indices++;
+            *ibPtr++ = _totalVertexCount + *indices++;
+        }
+    }
+
+    _totalIbCount += indicesCount;
+    _totalVertexCount += verticesCount;
 }
 
 val getUVs(float u, float v, float u2, float v2, bool rotate) {
@@ -231,89 +338,90 @@ val getUVs(float u, float v, float u2, float v2, bool rotate) {
     return _uvs;
 }
 
-void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float slotRangeStart = -1,float slotRangeEnd = -1) {
-    Vector<unsigned short> quadIndices = Vector<unsigned short>();
-    quadIndices.add(0);
-    quadIndices.add(1);
-    quadIndices.add(2);
-    quadIndices.add(2);
-    quadIndices.add(3);
-    quadIndices.add(0);
-   
+bool slotIsOutRange(Slot& slot, int startSlotIndex, int endSlotIndex) {
+    if(startSlotIndex < 0 && endSlotIndex < 0){
+        return false;
+    }
+    const int index = slot.getData().getIndex();
+    return startSlotIndex > index || endSlotIndex < index;
+}
 
+bool nothingToDraw(Slot& slot, int startSlotIndex, int endSlotIndex) {
+    Attachment *attachment = slot.getAttachment();
+    if (!attachment ||
+        slotIsOutRange(slot, startSlotIndex, endSlotIndex) ||
+        !slot.getBone().isActive())
+        return true;
+    const auto& attachmentRTTI = attachment->getRTTI();
+    if (attachmentRTTI.isExactly(ClippingAttachment::rtti))
+        return false;
+    if (slot.getColor().a == 0)
+        return true;
+    if (attachmentRTTI.isExactly(RegionAttachment::rtti)) {
+        if (static_cast<RegionAttachment*>(attachment)->getColor().a == 0)
+            return true;
+    }
+    else if (attachmentRTTI.isExactly(MeshAttachment::rtti)) {
+        if (static_cast<MeshAttachment*>(attachment)->getColor().a == 0)
+            return true;
+    }
+    return false;
+}
+void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float slotRangeStart = -1,float slotRangeEnd = -1) {
+    
     size_t vertexSize = 8;
     if(twoColorTint)  vertexSize = 12;
 
     AtlasPage* lastTexture = nullptr;
     BlendMode blendMode;
-	for (unsigned i = 0; i < skeleton->getSlots().size(); ++i) {
-		Slot &slot = *skeleton->getDrawOrder()[i];
-		Attachment *attachment = slot.getAttachment();
-		if (!attachment) {
-			clipper.clipEnd(slot);
-			continue;
-		}
+    LayaAttachmentVertices* attachmentVertices = nullptr;
+    Color *attachmentColor = nullptr;
+    float* vertices = nullptr;
+    unsigned short* indices = nullptr;
+    size_t verticesCount = 0;
+    size_t indicesCount = 0;
+    AtlasPage* texture = nullptr;
 
-		// Early out if the slot color is 0 or the bone is not active
-		if (slot.getColor().a == 0 || !slot.getBone().isActive()) {
-			clipper.clipEnd(slot);
-			continue;
-		}
-
-        size_t clippedVertexSize = clipper.isClipping() ? 2 : vertexSize;
-
-		Vector<float>* vertices = &vbHelpBuffer;
-		int verticesCount = 0;
-		Vector<float> *uvs = NULL;
-		Vector<unsigned short> *indices = nullptr;
-		int indicesCount = 0;
-		Color *attachmentColor;
-        AtlasPage* texture = nullptr;
+    Slot **drawOrder = skeleton->getDrawOrder().buffer();
+	for (unsigned i = 0,n = skeleton->getSlots().size(); i < n; ++i) {
+		Slot* slot = drawOrder[i];
+		Attachment *attachment = slot->getAttachment();
+        if (nothingToDraw(*slot, slotRangeStart, slotRangeEnd))
+        {
+            clipper.clipEnd(*slot);
+            continue;
+        }
 
 		if (attachment->getRTTI().isExactly(RegionAttachment::rtti)) {
 			RegionAttachment *regionAttachment = (RegionAttachment *) attachment;
-			attachmentColor = &regionAttachment->getColor();
-
-			// Early out if the slot color is 0
-			if (attachmentColor->a == 0) {
-				clipper.clipEnd(slot);
-				continue;
-			}
-
-            vertices->setSize(8, 0);
-			regionAttachment->computeWorldVertices(slot.getBone(), *vertices, 0, 2);
-			verticesCount = 4;
-			uvs = &regionAttachment->getUVs();
-			indices = &quadIndices;
-			indicesCount = 6;
-			texture =((AtlasRegion*)regionAttachment->getRendererObject())->page;
-
+            attachmentVertices = static_cast<LayaAttachmentVertices*>(regionAttachment->getRendererObject());
+            vertices = (float*)(attachmentVertices->m_vertexDatas);
+            attachmentColor = &regionAttachment->getColor();
+			regionAttachment->computeWorldVertices(slot->getBone(), vertices, 0, vertexSize);
+			verticesCount = attachmentVertices->m_verticesCount;
+			indices = attachmentVertices->m_triangles;
+			indicesCount = attachmentVertices->m_trianglesCount;
+			texture =((AtlasRegion*)(attachmentVertices->m_page))->page;
 		} else if (attachment->getRTTI().isExactly(MeshAttachment::rtti)) {
 			MeshAttachment *mesh = (MeshAttachment *) attachment;
 			attachmentColor = &mesh->getColor();
-
-			// Early out if the slot color is 0
-			if (attachmentColor->a == 0) {
-				clipper.clipEnd(slot);
-				continue;
-			}
-
-            vertices->setSize(mesh->getWorldVerticesLength(), 0);
-			mesh->computeWorldVertices(slot, 0, mesh->getWorldVerticesLength(), *vertices, 0, 2);
-			texture =((AtlasRegion*)mesh->getRendererObject())->page;
-			verticesCount = mesh->getWorldVerticesLength() >> 1;
-			uvs = &mesh->getUVs();
-			indices = &mesh->getTriangles();
-			indicesCount = indices->size();
-
+            attachmentVertices = static_cast<LayaAttachmentVertices*>(mesh->getRendererObject());
+            vertices = (float*)(attachmentVertices->m_vertexDatas);
+			mesh->computeWorldVertices(*slot, 0, mesh->getWorldVerticesLength(), vertices, 0, vertexSize);
+			verticesCount = attachmentVertices->m_verticesCount;
+			indices = attachmentVertices->m_triangles;
+			indicesCount = attachmentVertices->m_trianglesCount;
+			texture =((AtlasRegion*)(attachmentVertices->m_page))->page;
 		} else if (attachment->getRTTI().isExactly(ClippingAttachment::rtti)) {
-			ClippingAttachment *clip = (ClippingAttachment *) slot.getAttachment();
-			clipper.clipStart(slot, clip);
+			ClippingAttachment *clip = (ClippingAttachment *) slot->getAttachment();
+			clipper.clipStart(*slot, clip);
 			continue;
-		} else
-			continue;
+		} else{
+            clipper.clipEnd(*slot);
+            continue;
+        }
 
-        BlendMode slotBlendMode = slot.getData().getBlendMode();
+        BlendMode slotBlendMode = slot->getData().getBlendMode();
         bool needNewMat = false;
         if (slotBlendMode != blendMode) {
             needNewMat = true;
@@ -328,47 +436,104 @@ void drawSkeleton(val drawhander , Skeleton* skeleton,bool twoColorTint,float sl
             lastTexture = texture;
             blendMode = slotBlendMode;
         }
-		if (clipper.isClipping()) {
-			clipper.clipTriangles(*vertices, *indices, *uvs, 2);
-			vertices = &clipper.getClippedVertices();
-			verticesCount = clipper.getClippedVertices().size() >> 1;
-			uvs = &clipper.getClippedUVs();
-			indices = &clipper.getClippedTriangles();
-			indicesCount = clipper.getClippedTriangles().size();
-		}
 
-        color.r = skeleton->getColor().r * slot.getColor().r * attachmentColor->r ;
-		color.g = skeleton->getColor().g * slot.getColor().g * attachmentColor->g ;
-		color.b = skeleton->getColor().b * slot.getColor().b * attachmentColor->b ;
-		color.a = skeleton->getColor().a * slot.getColor().a * attachmentColor->a ;
-        if(!canMergeToBatch(verticesCount,indices->size(),vertexSize)){
-           renderBatch(drawhander,vertexSize,lastTexture,blendMode);
+        color.r = skeleton->getColor().r * slot->getColor().r * attachmentColor->r ;
+		color.g = skeleton->getColor().g * slot->getColor().g * attachmentColor->g ;
+		color.b = skeleton->getColor().b * slot->getColor().b * attachmentColor->b ;
+		color.a = skeleton->getColor().a * slot->getColor().a * attachmentColor->a ;
+		if (clipper.isClipping()) {
+			clipper.clipTriangles(vertices, indices,(size_t)indicesCount ,vertices+6, vertexSize);
+            indicesCount = clipper.getClippedTriangles().size();
+            indices = clipper.getClippedTriangles().buffer();
+
+            verticesCount = clipper.getClippedVertices().size() >> 1;
+            if(verticesCount == 0){
+                clipper.clipEnd(*slot);
+                continue;
+            }
+            if(!canMergeToBatch(verticesCount,indicesCount,vertexSize)){
+                renderBatch(drawhander,vertexSize,lastTexture,blendMode);
+            }
+
+            float *posPtr = clipper.getClippedVertices().buffer();
+            float *uv = clipper.getClippedUVs().buffer();
+            mergeBuffer(posPtr,uv,verticesCount,vertexSize,indices,indicesCount,twoColorTint);
+           
+		}else{
+            for(int i=0;i<verticesCount;i++){
+                vertices[i*vertexSize+2] = color.r;
+                vertices[i*vertexSize+3] = color.g;
+                vertices[i*vertexSize+4] = color.b;
+                vertices[i*vertexSize+5] = color.a;
+            }
+            if(!canMergeToBatch(verticesCount,indicesCount,vertexSize)){
+                renderBatch(drawhander,vertexSize,lastTexture,blendMode);
+            }
+            mergeBuffer(vertices,verticesCount,vertexSize,indices,indicesCount,twoColorTint);
         }
-        mergeBuffer(vertices,verticesCount,indices,twoColorTint,vertexSize,uvs,&color);
-		
-		clipper.clipEnd(slot);
+		clipper.clipEnd(*slot);
 	}
-	clipper.clipEnd();
     renderBatch(drawhander,vertexSize,lastTexture,blendMode);
+    clipper.clipEnd();
 }
+
 
 SkeletonClipping* getClipper(){
     return &clipper;
 }
 
+
+val crateAnimation(Animation *animation){
+    val obj = val::object();
+    // obj.set("name", animation->getName().buffer());
+    obj.set("duration", animation->getDuration());
+    // obj.set("timelines", vectorToArray(animation->getTimelines()));
+    return obj;
+}
+
+val createTrackEntry(size_t ptr) {
+    TrackEntry* entry = (TrackEntry*)ptr;
+    val objct = val::object();
+    objct.set("animation", crateAnimation(entry->getAnimation()));
+    objct.set("loop", entry->getLoop());
+    objct.set("delay", entry->getDelay());
+    objct.set("trackIndex", entry->getTrackIndex());
+    objct.set("mixTime", entry->getMixTime());
+    objct.set("mixDuration", entry->getMixDuration());
+    objct.set("mixBlend", entry->getMixBlend());
+    objct.set("animationTime", entry->getAnimationTime());
+   
+    objct.set("timeScale", entry->getTimeScale());
+    objct.set("alpha", entry->getAlpha());
+    objct.set("eventThreshold", entry->getEventThreshold());
+    objct.set("attachmentThreshold", entry->getAttachmentThreshold());
+    objct.set("drawOrderThreshold", entry->getDrawOrderThreshold());
+    objct.set("animationStart", entry->getAnimationStart());
+    objct.set("animationEnd", entry->getAnimationEnd());
+    objct.set("animationLast", entry->getAnimationLast());
+    return objct;
+}
 EMSCRIPTEN_BINDINGS(spine)
 {
-    register_vector<char>("CharVector");
-    register_vector<unsigned char>("VectorUnsignedChar");
     register_vector<std::string>("StringVector");
-    register_vector<float>("FloatVector");
-    register_vector<Event*>("EventVetor");
+
     function("drawSkeleton", &drawSkeleton,allow_raw_pointer<arg<0>>());
     function("createBuffer", &createBuffer,allow_raw_pointer<arg<0>>());
     function("getVertexsBuffer", &getVertexsBuffer);
     function("getIndexsBuffer", &getIndexsBuffer);
 
     function("getClipper", &getClipper,allow_raw_pointer<arg<0>>());
+
+    function("wrapEventData",&wrapPointer<EventData>,allow_raw_pointer<arg<0>>());
+    function("wrapEvent",&wrapPointer<Event>,allow_raw_pointer<arg<0>>());
+    function("wrapAtlas",&wrapPointer<Atlas>,allow_raw_pointer<arg<0>>());
+    function("wrapTextureLoader",&wrapPointer<TextureLoader>,allow_raw_pointer<arg<0>>());
+    function("wrapAnimationStateListenerObject",&wrapPointer<AnimationStateListenerObject>,allow_raw_pointer<arg<0>>());
+    function("wrapAtlasAttachmentLoader",&wrapPointer<LayaAtlasAttachmentLoader>,allow_raw_pointer<arg<0>>());
+    function("wrapAtlasPage",&wrapPointer<AtlasPage>,allow_raw_pointer<arg<0>>());
+    function("wrapAnimationState",&wrapPointer<AnimationState>,allow_raw_pointer<arg<0>>());
+    function("wrapTrackEntry",&wrapPointer<TrackEntry>,allow_raw_pointer<arg<0>>());
+    // function("wrapTrackEntry",&createTrackEntry,allow_raw_pointer<arg<0>>());
 
     enum_<TextureFilter>("TextureFilter")
         .value("Unknown", TextureFilter::TextureFilter_Unknown)
@@ -457,7 +622,8 @@ EMSCRIPTEN_BINDINGS(spine)
         ;
 
     class_<Event>("Event")
-        .function("getData", &Event::getData,allow_raw_pointers())
+        .function("getData",optional_override([](Event* event)
+                {return (size_t)&event->getData(); }),allow_raw_pointer<arg<0>>())
         .function("getTime", &Event::getTime)
         .function("getIntValue", &Event::getIntValue)
         .function("setIntValue", &Event::setIntValue)
@@ -477,6 +643,7 @@ EMSCRIPTEN_BINDINGS(spine)
         ;
 
     class_<AtlasPage>("AtlasPage")
+        .smart_ptr<std::shared_ptr<AtlasPage>>("shared_ptr<AtlasPage>")
         .constructor<String>()
         .function("getName",optional_override([](AtlasPage* page)
                 {return getString(page->name); }), allow_raw_pointers())
@@ -507,7 +674,12 @@ EMSCRIPTEN_BINDINGS(spine)
     class_<Atlas>("Atlas")
         .constructor(&creatAtlas);
     
-    class_<AtlasAttachmentLoader>("AtlasAttachmentLoader")
+    //  class_<AtlasAttachmentLoader>("AtlasAttachmentLoader")
+    //     .constructor<Atlas*>()
+    //     ;
+
+    class_<LayaAtlasAttachmentLoader>("AtlasAttachmentLoader")
+        .smart_ptr<std::shared_ptr<LayaAtlasAttachmentLoader>>("shared_ptr<LayaAtlasAttachmentLoader>")
         .constructor<Atlas*>()
         ;
         
@@ -522,6 +694,18 @@ EMSCRIPTEN_BINDINGS(spine)
                                                 trianglesLength,reinterpret_cast<float*>(uvsPtr), stride); 
                 }), allow_raw_pointers())
         .function("isClipping", &SkeletonClipping::isClipping)
+        ;
+
+    class_<LayaAttachmentVertices>("LayaAttachmentVertices")
+        .constructor<void*,size_t,size_t>()
+        .function("getPage" ,optional_override([](LayaAttachmentVertices *att)
+                {return ((AtlasRegion*)att->m_page)->page;}), allow_raw_pointers())
+        .property("verticesCount", &LayaAttachmentVertices::m_verticesCount)
+        .property("trianglesCount", &LayaAttachmentVertices::m_trianglesCount)
+        .function("getvertexDatas",optional_override([](LayaAttachmentVertices *att)
+                {return val(typed_memory_view(att->m_verticesCount*8, (float*)att->m_vertexDatas));}), allow_raw_pointers())
+        .function("getIndexs" ,optional_override([](LayaAttachmentVertices *att)
+                {return val(typed_memory_view(att->m_trianglesCount, att->m_triangles));}), allow_raw_pointers())
         ;
 
     class_<Attachment>("Attachment")
@@ -558,7 +742,10 @@ EMSCRIPTEN_BINDINGS(spine)
                 {
                     att->setPath(createString(path));
                 }), allow_raw_pointers())
-        .function("getRendererObject", &RegionAttachment::getRendererObject, allow_raw_pointers())
+        .function("getRendererObject", optional_override([](RegionAttachment *att)
+                {
+                    return  (LayaAttachmentVertices*)att->getRendererObject();
+                }), allow_raw_pointers())
         .function("getRegionOffsetX", &RegionAttachment::getRegionOffsetX)
         .function("setRegionOffsetX", &RegionAttachment::setRegionOffsetX)
         .function("getRegionOffsetY", &RegionAttachment::getRegionOffsetY)
@@ -576,10 +763,14 @@ EMSCRIPTEN_BINDINGS(spine)
         .function("getUVs" ,optional_override([](RegionAttachment *att)
                 {return createMemoryView(att->getUVs());}), allow_raw_pointers())
         .function("getPage" ,optional_override([](RegionAttachment *att)
-                {return ((AtlasRegion*)att->getRendererObject())->page;}), allow_raw_pointers())
+                {
+                    LayaAttachmentVertices* attachmentVertices = static_cast<LayaAttachmentVertices*>(att->getRendererObject());
+			        return ((AtlasRegion*)(attachmentVertices->m_page))->page;
+                }), allow_raw_pointers())
         .function("getRotateUVs" ,optional_override([](RegionAttachment *att)
                 {
-                    AtlasRegion *regionP  = (AtlasRegion*)att->getRendererObject();
+                    LayaAttachmentVertices* attachmentVertices = static_cast<LayaAttachmentVertices*>(att->getRendererObject());
+                    AtlasRegion *regionP  = (AtlasRegion*)(attachmentVertices->m_page);
                     return getUVs(regionP->u, regionP->v, regionP->u2, regionP->v2, regionP->rotate);
                 }), allow_raw_pointers())
         ;
@@ -630,9 +821,13 @@ EMSCRIPTEN_BINDINGS(spine)
         .function("getRegionUvs", optional_override([](MeshAttachment *mesh)
                 {return createMemoryView(mesh->getRegionUVs()); }), allow_raw_pointers())
         .function("getPage" ,optional_override([](MeshAttachment *mesh)
-                {return ((AtlasRegion*)mesh->getRendererObject())->page;}), allow_raw_pointers())
+                 {
+                    LayaAttachmentVertices* attachmentVertices = static_cast<LayaAttachmentVertices*>(mesh->getRendererObject());
+			        return ((AtlasRegion*)(attachmentVertices->m_page))->page;
+                }), allow_raw_pointers())
         .function("getBones",optional_override([](MeshAttachment *mesh)
                 {return createMemoryView(mesh->getBones());}),allow_raw_pointers())
+      
         ;
     
     class_<ClippingAttachment,base<Attachment>>("ClippingAttachment")
@@ -822,7 +1017,7 @@ EMSCRIPTEN_BINDINGS(spine)
                     return vectorToArray(anim->getTimelines());
                 }),allow_raw_pointers())
         ;
-
+    
     class_<TrackEntry>("TrackEntry")
         .function("getAnimation", &TrackEntry::getAnimation,allow_raw_pointers())
         .function("getLoop", &TrackEntry::getLoop)
@@ -838,7 +1033,7 @@ EMSCRIPTEN_BINDINGS(spine)
         ;
         
     class_<SkeletonBinary>("SkeletonBinary")
-        .constructor<AtlasAttachmentLoader*,bool>()
+        .constructor<LayaAtlasAttachmentLoader*,bool>()
         .function("readSkeletonData", optional_override([](SkeletonBinary *binary, val data)
                 {
                     const std::vector<unsigned char> dataVec = convertJSArrayToNumberVector<unsigned char>(data);
@@ -847,7 +1042,7 @@ EMSCRIPTEN_BINDINGS(spine)
         ;
 
     class_<SkeletonJson>("SkeletonJson")
-        .constructor<AtlasAttachmentLoader*,bool>()
+        .constructor<LayaAtlasAttachmentLoader*,bool>()
         .function("readSkeletonData", optional_override([](SkeletonJson *json, std::string jsondata)
                 {
                     return json->readSkeletonData(jsondata.c_str()); 
@@ -1025,11 +1220,11 @@ EMSCRIPTEN_BINDINGS(spine)
                 }), allow_raw_pointers())
         .function("setAnimation", optional_override([](AnimationState *stat, size_t trackIndex, std::string animationName, bool loop)
                 {
-                    return  stat->setAnimation(trackIndex, createString(animationName), loop);
+                    return size_t(stat->setAnimation(trackIndex, createString(animationName), loop));
                 }),allow_raw_pointers())
         .function("getCurrent", optional_override([](AnimationState *stat, size_t trackIndex)
                 {
-                    return  stat->getCurrent(trackIndex);
+                    return size_t(stat->getCurrent(trackIndex));
                 }),allow_raw_pointers())
         ;
 }
